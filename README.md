@@ -23,7 +23,7 @@ after a crash, reboot or Ctrl-C, just run the same command again.
    Install "just for me"; no admin rights needed. Then open **Miniforge Prompt** from the Start menu.
    Use it for every command below.
 2. **Install git** if `git --version` fails: `conda install -c conda-forge git`.
-3. **Download the repository** (it is private, so git will open a browser window to log in to GitHub):
+3. **Download the repository**:
    ```
    cd %USERPROFILE%
    git clone https://github.com/TheCheng2005/HD219134.git
@@ -160,5 +160,5 @@ data/                     TESS SPOC light curves (5 sectors), RVs from 5 instrum
 
 RV data sources: HARPS-N (Gillon et al. 2017, private communication; includes Motalebi et al. 2015),
 HIRES (Butler et al. 2017), Tull/HJST Phase III (Johnson et al. 2016), APF/Levy (Rosenthal et al. 2021),
-Hamilton (Fischer et al. 2014, binned by Howard & Fulton 2016). **The HARPS-N velocities are not
-public; keep this repository private.**
+Hamilton (Fischer et al. 2014, binned by Howard & Fulton 2016). The HARPS-N velocities were provided
+by M. Gillon by private communication; please do not reuse them without permission.
