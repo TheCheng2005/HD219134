@@ -16,7 +16,173 @@ after a crash, reboot or Ctrl-C, just run the same command again.
 
 ---
 
-## 1. Setting up (Windows)
+## 1. Why this suite exists: problems in the September analysis
+
+The September draft compared five planet configurations and concluded that the adopted model
+(b, c, d, h) is preferred and that f, g and i are stellar activity. Checking the saved traces
+turned up the problems below. Most of them are about **how the models were compared**; the
+adopted 4-planet fit itself converged and holds up.
+
+| # | Problem | Consequence | What the suite does |
+|---|---|---|---|
+| 1 | Likelihoods evaluated at the wrong parameter values | every ln L and BIC in the comparison tables is wrong | correct evaluation, checked against the sampler |
+| 2 | BIC built from the *median* ln L | bigger models penalized twice; unstable for unconverged runs | BIC from the best fit, ln L̂ |
+| 3 | A best fit without priors is meaningless here | the GP drifts to absurd periods and absorbs planets | ln L̂ keeps the priors |
+| 4 | The 5- and 6-planet runs never converged | their medians and uncertainties describe no real solution | better starting points, better parameterization, automatic diagnostics |
+| 5 | Log-mass priors cannot let a planet vanish | "no planet" is never allowed; causes problem 4 | K ~ U(0, 10) m/s for disputed planets |
+| 6 | Planet f sits at the rotation period | "the GP explains f" is expected whether or not f is real | P_rot tests and injection-recovery |
+| 7 | No direct test of single planets | a ΔBIC can't be pinned on one planet | nested runs b c d h + f, b c d h + g |
+| 8 | Five copied scripts drifted apart | runs differ in ways the paper doesn't say | one model builder, verified |
+| 9 | The MAP starting point wasn't a best fit | poor starts for the sampler | chains start from the converged 4-planet posterior |
+
+### Problem 1: the likelihoods were evaluated at the wrong parameter values
+
+To compare models, the old `get_aic_bic_metric` took each posterior draw and evaluated the
+likelihood there. PyMC samples bounded parameters (√e cos ω, √e sin ω, impact parameter,
+f_rot, jitters) on an internal, unbounded scale, so each draw must be converted to that scale
+first. The code looked for the conversion in `rv.transform`, which is always `None` in PyMC 5.
+The conversion therefore never happened, those parameters stayed at their **starting values** for
+every draw, and a bare `except: pass` hid the error.
+
+*Consequence:* every ln L and BIC in the draft's model-comparison tables is off by hundreds to
+thousands, by a different amount for each model. The 4-planet median ln L is 49,755, not 48,692.
+This is why larger models seemed to fit *worse* than the smaller models they contain, which
+cannot happen when the extra planet can be switched off.
+
+*Suite:* converts correctly, and before reporting anything checks that the rebuilt draws reproduce
+the log-probability the sampler itself recorded (they agree to 10⁻¹¹; the run stops if not).
+
+### Problem 2: BIC was built from the median ln L
+
+BIC = k ln n − 2 ln L̂ is defined with the **best-fit** likelihood L̂. The draft used the median
+over posterior draws instead. Even for a perfectly sampled posterior, the median sits well below
+the best fit, by up to about k/2 (about 20 below for the 4-planet model, k = 50), and the gap grows
+with the number of parameters. A model with more parameters is therefore penalized twice: once by
+k ln n, and again by a lower median.
+
+For unconverged runs it is worse: the median mostly reflects where the chains got stuck. Within a
+single run, the four chains' medians differ by up to **85** (5-Planet) and **250** (6-Planet-H).
+By contrast, all four chains of the converged 4-planet run reach the same best fit to 0.01.
+
+*Suite:* BIC uses ln L̂ (problem 3). The median is still reported, for reference only.
+
+### Problem 3: a best fit that ignores the priors is meaningless here
+
+The natural ln L̂ would maximize the likelihood alone. Doing that sends the fit somewhere
+absurd. The TESS light curve barely constrains the rotation period inside this model: its
+ln L is **53,829.4 whether P_rot is 22 d or 21,000 d**. So nothing but the prior holds P_rot
+near 22.6 d. Without the prior, the optimizer moves P_rot to thousands of days; the GP then
+becomes a slow trend that absorbs planet h (Gillon configuration), or planet g's period runs off
+to 5 × 10⁹ days so that g effectively disappears.
+
+So a "bad" maximum really can look better. But the cause is dropping the priors, not using the maximum.
+
+*Suite:* ln L̂ is the best fit **with the priors in place**: the best posterior draw, or the
+posterior mode reached by optimizing from each chain's best draw, whichever is higher. For the
+4-planet model, all four chains reach the same mode (ln L̂ = 49,775.38).
+
+*Also note:* P_rot is set by its prior, not measured by the light curve, in this model. That
+matters for problem 6.
+
+### Problem 4: the 5- and 6-planet runs never converged, and longer runs would not help
+
+| Published run | NUTS steps per draw | draws hitting the step limit | divergences | R̂ | wall time |
+|---|---|---|---|---|---|
+| 4-Planet-M | 63 | 0% | 0 | ≤ 1.01 | 12 h |
+| 5-Planet | 255 | 48% | 52 | > 2 | 35 h |
+| 6-Planet-V, 4-Planet-G, 6-Planet-H | 1023 (the limit) | 91–97% | 143–329 | 2.3–3.4 | 35–37 h |
+
+In these runs the four chains settled in **different places**. In 4-Planet-G, f's period is
+22.67, 26.04, 20.81 and 22.47 d in the four chains. The draft states R̂ ≤ 1.01 and N_eff ≥ 1000
+for all parameters, which holds only for the 4-planet model.
+
+Running longer does not fix this. Divergences and hitting the step limit mean the posterior has a
+shape the sampler cannot move through: narrow funnels (problem 5) and separate modes. More draws
+just add more samples from the same stuck chains. Effective sample size stays around 5, because
+it counts how often chains move *between* regions, and they never do.
+
+*Consequence:* the medians and uncertainties quoted for these models (f's periods, g's mass,
+the median ln L) are averages over chains that disagree, so they describe no real solution.
+
+*Suite:* each chain starts from a different draw of the converged 4-planet posterior; the
+`kprior` runs remove the worst geometry (problem 5); and every run gets an automatic convergence
+report (R̂, ESS, divergences, per-chain medians). An unconverged run can still give ln L̂, since an
+optimum needs only one good point, but its posterior medians are flagged and should not be quoted.
+
+### Problem 5: a log-mass prior never lets a planet vanish
+
+The disputed planets had priors on log₁₀ mass, centered on the literature value. For f,
+log₁₀ m ~ N(log₁₀ 7.4, 0.5). Zero mass is log m = −∞, so it is never reached. In practice this
+prior puts 95% of its probability between about 0.8 and 70 M⊕ (K ≈ 0.2–19 m/s), and only about
+0.3% below K = 0.1 m/s. It effectively states that f exists with roughly its published mass. This
+has three consequences:
+
+1. **No "no planet" answer.** The data can pull the mass down a few σ, but the posterior can
+   never say "consistent with zero", so the test is not neutral.
+2. **The comparison is not truly nested.** "b c d h + f" cannot exactly reproduce "b c d h".
+3. **It causes problem 4.** When the data don't support the planet, the sampler drifts toward
+   small log m. There the planet's period, phase and eccentricity stop affecting the fit, and the
+   posterior narrows into a funnel that NUTS cannot step through: divergences, maximum tree depth,
+   stuck chains.
+
+*Suite:* the `kprior` runs give each disputed planet a **linear** prior on its RV semi-amplitude,
+K ~ U(0, 10) m/s, which includes zero. If the data don't want the planet, the posterior piles up
+near K = 0, and the 2.5th percentile of K answers the question directly. K rather than mass,
+because K is what the RVs measure (at fixed period K ∝ m sin i, so the two are nearly equivalent).
+These runs also fix e = 0 for the disputed planets, removing the eccentricity directions that a
+~2 m/s signal cannot constrain anyway. The confirmed planets (b, c, d, h) keep the paper's log-mass
+priors: their posteriors sit far from zero, so the choice does not matter for them. The paper-prior
+runs remain in the suite for comparison. Two caveats: e = 0 is a modeling choice, and U(0, 10) puts
+more prior weight at large K than a log prior (this affects a Bayesian evidence, not ΔBIC).
+
+### Problem 6: planet f sits at the rotation period, so the test is circular
+
+Planet f's period (22.7 d) lies inside the P_rot prior, 22.56 ± 0.29 d. A GP whose period is
+P_rot can absorb any signal at that period, so "the GP explains f, so f is activity" would come
+out **whether or not f is real**. And by problem 3, P_rot is fixed by its prior rather than
+measured. When the GP was moved to ~41 d (the draft's Table 9 runs), f came back at 22.80 d with
+K ≈ 2.1–2.4 m/s.
+
+*Suite:* the `prot` runs test this directly:
+- **Broad prior:** P_rot ~ U(15, 50) d, with two chains starting at 22.56 d and two at 42 d.
+- **41-d prior:** P_rot ~ N(41.2, 2.8) d.
+- **Injection at P_rot:** a synthetic K = 2.3 m/s planet is added *at* 22.56 d. If the GP swallows
+  it, these fits cannot decide whether f is a planet.
+- **Injections away from P_rot** (27 and 33 d) should be recovered.
+- **Null runs**, with the same models and no injection, should give K ≈ 0.
+
+### Problem 7: no direct test of a single planet
+
+The published configurations change several planets at once. For example, 4-Planet-G adds f
+**and** drops h, so its poor BIC mostly measures losing h, not anything about f.
+
+*Suite:* `nested_M4+f` and `nested_M4+g` add exactly one disputed planet to the adopted model
+(plus the `kprior` versions). These are the comparisons that actually test f and g.
+
+### Problem 8: five copied scripts drifted apart
+
+The five configurations lived in five copied scripts, and they differed in ways the paper does not
+mention:
+- The 6-planet script had `f_rot_lc ~ U(0, 1)`; the others had `U(0.05, 1)`.
+- The P_rot prior was changed for test runs and changed back.
+- Some table entries could not be traced to a specific run.
+
+*Suite:* one model builder (`hd219134/model.py`). With the paper options it reproduces the four
+consistent scripts' log-probability **exactly**, and the 6-planet one exactly once its bound is set
+to 0.05, which the suite uses throughout. Every run records its full specification, random seed
+and package versions, and the tables in `results/summary/` are generated from the runs, never typed.
+
+### Problem 9: the MAP starting point was not a best fit
+
+The staged `pmx.optimize` "MAP" used to start the chains ended about 450 in ln L **below** the
+posterior median, so it was a poor start and not a best fit.
+
+*Suite:* no MAP stage. Chains start from draws of the converged 4-planet posterior; other
+planets start at their literature values.
+
+---
+
+## 2. Setting up (Windows)
 
 1. **Install Miniforge** (conda from conda-forge): download the Windows installer from
    <https://github.com/conda-forge/miniforge/releases/latest> (`Miniforge3-Windows-x86_64.exe`).
@@ -48,7 +214,7 @@ after a crash, reboot or Ctrl-C, just run the same command again.
    ```
    Output goes to `results_quick\` and can be deleted afterwards.
 
-## 2. Running
+## 3. Running
 
 ```
 conda activate hd219134
@@ -80,7 +246,7 @@ preview), or each run's live log `results\<run>\log.txt`.
 **Bringing results back:** zip the `results` folder (about 5–10 MB per run) and copy it over.
 `results/` is git-ignored on purpose.
 
-## 3. How long it takes
+## 4. How long it takes
 
 Each run samples 4 chains × (1500 tuning + 1500 kept) iterations on 4 cores. On the reference
 Mac the converged 4-planet model took 12 h; the published 5- and 6-planet models took 35–37 h,
@@ -88,7 +254,7 @@ because the sampler hit its step limit on almost every iteration. With 16 cores 
 expect roughly 5–8 days for all 22 runs; with 8 cores, about twice that. The order puts the runs
 that decide the paper's conclusions first, so useful results arrive within the first 1–2 days.
 
-## 4. The runs
+## 5. The runs
 
 Planets: b, c (transiting), d, h (adopted); f, g, i (disputed); x (synthetic). P_rot prior:
 N(22.56, 0.29) d from the TESS SAP periodogram unless stated otherwise.
@@ -110,7 +276,9 @@ Every chain starts from a different draw of the converged paper 4-planet posteri
 values, and K-prior planets at K = 0.5, 1.5, 2.5 or 3.5 m/s depending on the chain, so chains
 that end up in different modes show it.
 
-## 5. What the numbers mean
+## 6. What the numbers mean
+
+See problems 2 and 3 above for why these definitions were chosen.
 
 - **ln L**: log-likelihood of the data only (TESS + RV; no priors).
 - **ln L̂**: the best fit *inside the posterior's support*: the best posterior draw, or the
@@ -127,26 +295,10 @@ that end up in different modes show it.
   can still give ln L̂ (an optimum only needs one good point), but not posterior medians or
   uncertainties. The summary flags them.
 
-## 6. Differences from the code used for the September draft
-
-1. **Likelihood evaluation fixed.** The old `get_aic_bic_metric` read `rv.transform`, which is
-   always `None` in PyMC 5, so bounded parameters (e, ω, b, f_rot, jitters) were left at their
-   starting values, and a bare `except` hid the error. Every ln L and BIC in the draft's
-   model-comparison tables is affected. `metrics.analyze` checks each run by rebuilding draws
-   and matching the sampler's own log-probability.
-2. **BIC uses ln L̂, not the median ln L.** DIC uses the likelihood only (before, it included the
-   priors, with bounded parameters again at their starting values).
-3. **One model builder** (`hd219134/model.py`) replaces five copied scripts. With the paper
-   options it reproduces the old scripts' log-probability exactly. The one exception: the old
-   6-planet script had `f_rot_lc ~ U(0, 1)`, the others `U(0.05, 1)`; the suite uses 0.05 throughout.
-4. **No staged MAP optimization.** Chains start from the converged 4-planet posterior instead.
-   The old MAP ended about 450 in ln L below the posterior median.
-5. **Fixed random seeds** per run, and every output records the package versions used.
-
 ## 7. Layout
 
 ```
-run_suite.py              runs everything (see section 2)
+run_suite.py              runs everything (see section 3)
 hd219134/data.py          TESS + RV loading and cleaning
 hd219134/planets.py       literature priors for every planet; the published configurations
 hd219134/model.py         the joint model; K-prior and P_rot-prior options; RV injection
