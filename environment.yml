@@ -1,0 +1,23 @@
+# conda env create -f environment.yml   (then: conda activate hd219134)
+# Versions match the machine the paper runs and tests/reference_logp.json came from.
+name: hd219134
+channels:
+  - conda-forge
+  - nodefaults
+dependencies:
+  - python=3.10
+  - pymc=5.25.1          # on Windows this also installs the MinGW C++ compiler pytensor needs
+  - pytensor=2.31.7
+  - numpy=1.26.4
+  - scipy=1.15.2
+  - arviz=0.23.0
+  - astropy=6.1.7
+  - exoplanet-core=0.3.0
+  - h5netcdf
+  - matplotlib
+  - pandas
+  - tqdm
+  - pip
+  - pip:
+      - exoplanet==0.6.0
+      - celerite2==0.3.2

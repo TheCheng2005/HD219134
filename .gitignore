@@ -1,0 +1,4 @@
+results/
+results_quick/
+__pycache__/
+*.pyc
