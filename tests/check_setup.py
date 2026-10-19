@@ -55,7 +55,7 @@ def main(write_reference=False):
     from hd219134.model import build_model, inject_rv_signal
     from hd219134.runs import RUNS, SAMPLING, chain_initvals
 
-    ref = json.loads(REFERENCE.read_text()) if REFERENCE.exists() and not write_reference else {}
+    ref = json.loads(REFERENCE.read_text(encoding="utf-8")) if REFERENCE.exists() and not write_reference else {}
     new_ref = {}
     timing = None
     for run in RUNS:
@@ -68,7 +68,7 @@ def main(write_reference=False):
         finite = np.isfinite(lp) and all(np.all(np.isfinite(gi)) for gi in g)
         new_ref[run.id] = float(lp)
         if run.id in ref:
-            check(finite and abs(lp - ref[run.id]) < 1e-3,
+            check(finite and abs(lp - ref[run.id]) < 1e-2,
                   f"{run.id:18s} logp {lp:.6f} (reference {ref[run.id]:.6f})")
         else:
             check(finite, f"{run.id:18s} logp {lp:.6f} finite, gradient finite (no reference value)")
@@ -85,7 +85,7 @@ def main(write_reference=False):
           "(expected 2.30)")
 
     if write_reference:
-        REFERENCE.write_text(json.dumps(new_ref, indent=1))
+        REFERENCE.write_text(json.dumps(new_ref, indent=1), encoding="utf-8")
         print(f"wrote {REFERENCE}")
 
     n_iter = SAMPLING["tune"] + SAMPLING["draws"]

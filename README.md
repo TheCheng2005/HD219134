@@ -11,8 +11,9 @@ python run_suite.py
 ```
 
 It checks the setup, then works through 22 runs, most informative first, a few at a time.
-After every run it updates `results/summary/SUMMARY.md`. Finished runs are skipped, so
-after a crash, reboot or Ctrl-C, just run the same command again.
+After every run it updates `results/summary/SUMMARY.md`. Finished runs are skipped and
+unfinished or failed ones are redone, so after a crash, reboot or Ctrl-C, just run the same
+command again.
 
 ---
 
@@ -205,7 +206,8 @@ planets start at their literature values.
    python tests\check_setup.py
    ```
    This confirms the package versions, that pytensor found a C++ compiler, and that every
-   model gives the *same* log-probability as on the reference Mac (to 10⁻³). It ends with
+   model gives the *same* log-probability as on the reference Mac (to within 0.01 out of ~49,500,
+   allowing for compiler rounding). It ends with
    "All checks passed" and a rough time per run for this machine.
    If the compiler check fails, run `conda install -c conda-forge "pytensor=2.31.7" gxx` and try again.
 6. **Smoke test the whole pipeline** (about 15–30 minutes; tiny chains, results are meaningless):
@@ -224,12 +226,12 @@ python run_suite.py
 
 | Command | What it does |
 |---|---|
-| `python run_suite.py` | run everything not yet finished |
+| `python run_suite.py` | run everything not yet finished, including runs that failed before |
 | `python run_suite.py --list` | status of every run (done / running / pending / FAILED) |
 | `python run_suite.py --group paper,nested` | only some groups |
 | `python run_suite.py --only paper_M4,kprior_M4+f` | only some runs |
-| `python run_suite.py --jobs 2` | runs at once (default: CPU cores ÷ 4) |
-| `python run_suite.py --retry-failed` | also redo runs that failed |
+| `python run_suite.py --jobs 2` | runs at once (default: logical processors ÷ 4; see below) |
+| `python run_suite.py --skip-failed` | leave runs that failed before alone |
 | `python run_suite.py --summary` | just rebuild `results/summary/` |
 
 **Keeping it running for days**
@@ -237,11 +239,23 @@ python run_suite.py
   restarting stops the runs.** While it runs, the script asks Windows not to sleep.
 - In Settings → System → Power, set "When plugged in, put my device to sleep after" to **Never**.
 - In Settings → Windows Update, **pause updates** for the duration, so the machine doesn't restart.
-- If it does stop, run `python run_suite.py` again. Finished runs are kept; the interrupted
-  run starts over.
+- If it does stop, run `python run_suite.py` again. Finished runs are kept; interrupted and
+  failed runs start over. Run only **one** copy at a time: two copies write to the same folders.
+- **Don't click inside the console window.** Windows' QuickEdit mode freezes a console's output
+  after a click until you press a key (or Esc). Sampling continues, but the suite cannot record a
+  finished run until then. To turn it off for good: right-click the title bar → Properties →
+  untick "QuickEdit Mode".
+
+**How many runs at once (`--jobs`).** Each run uses 4 cores, one per chain. The default divides
+the number of *logical* processors by 4. On a CPU with hyperthreading (most Intel desktops) that
+is twice the number of *physical* cores ÷ 4, which still works but makes each run slower. If
+Task Manager (Performance → CPU) shows, say, 8 cores and 16 logical processors, use `--jobs 2`.
+Also watch memory in the first hour; if it is close to full, restart with a smaller `--jobs`.
 
 **Checking progress:** open `results\summary\SUMMARY.md` (any text editor, or VS Code's
-preview), or each run's live log `results\<run>\log.txt`.
+preview), or each run's live log `results\<run>\log.txt`, which gets a line per chain every
+100 iterations (out of 3000) with the divergence count and elapsed time. Don't keep the summary
+files open in Excel while the suite runs; Excel locks them.
 
 **Bringing results back:** zip the `results` folder (about 5–10 MB per run) and copy it over.
 `results/` is git-ignored on purpose.
@@ -280,7 +294,8 @@ that end up in different modes show it.
 
 See problems 2 and 3 above for why these definitions were chosen.
 
-- **ln L**: log-likelihood of the data only (TESS + RV; no priors).
+- **ln L**: log-likelihood of the data only (TESS + RV; no priors). It also contains the tiny
+  e < 1 boundary term, below 10⁻¹⁰⁰ for any e under 0.3.
 - **ln L̂**: the best fit *inside the posterior's support*: the best posterior draw, or the
   posterior mode reached by optimizing from the best draw of each chain, whichever is higher.
   The likelihood-only maximum is **not** used. The light curve does not constrain P_rot in this
@@ -288,12 +303,15 @@ See problems 2 and 3 above for why these definitions were chosen.
   absorbs planets.
 - **BIC** = k ln n − 2 ln L̂, with k the number of free parameters and n = 81,886 data points.
   The table reports ΔBIC relative to `paper_M4`; negative favours the other model.
-- **median ln L**: shown for reference only. It sits about k/2 below ln L̂ even for perfect
-  runs, and for unconverged runs it mostly reflects where the chains got stuck.
+- **median ln L**: shown for reference only. It sits below ln L̂ by an amount that grows with k
+  even for perfect runs, and for unconverged runs it mostly reflects where the chains got stuck.
 - **DIC** = D̄ + p_D with D = −2 ln L.
-- **Converged** = R̂ ≤ 1.01, bulk ESS ≥ 400 and no divergences. Results from unconverged runs
-  can still give ln L̂ (an optimum only needs one good point), but not posterior medians or
-  uncertainties. The summary flags them.
+- **Converged** = R̂ ≤ 1.01, bulk ESS ≥ 400 and no divergences, judged without the period,
+  phase and K of K-prior planets. When such a planet's K is near 0, those parameters are
+  unconstrained, so their R̂ says nothing about the rest of the fit. The summary also shows R̂
+  over all parameters. Unconverged runs can still give ln L̂ (an optimum only needs one good
+  point), but not posterior medians or uncertainties. The summary flags them.
+- Every run's `metrics.json` records its settings, random seed and package versions.
 
 ## 7. Layout
 

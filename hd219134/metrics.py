@@ -1,7 +1,8 @@
 """Post-sampling diagnostics and model-comparison statistics.
 
 Definitions (see README, "What the numbers mean"):
-  ln L      log-likelihood of the data only (model.datalogp: no priors, no Jacobians)
+  ln L      log-likelihood of the data (model.datalogp: no priors, no Jacobians; it also contains the
+            e < 1 potential, which is below 1e-100 for any e under 0.3)
   ln L-hat  best ln L inside the posterior's support: the best posterior draw, or the
             posterior mode reached from the best draw of each chain, whichever is higher.
             A likelihood-only optimum is NOT used: the light curve does not constrain
@@ -108,9 +109,15 @@ def describe(model, point):
     return d
 
 
-def convergence(trace, model, planets):
+def convergence(trace, model, planets, k_planets=()):
+    """R-hat/ESS over all parameters, and over all except the period, phase and K of K-prior
+    planets: when such a planet's K is near 0 those are unconstrained and their R-hat says
+    nothing about the rest of the fit."""
     names = [rv.name for rv in model.free_RVs] + ["K", "period"]
     s = az.summary(trace, var_names=names, kind="diagnostics")
+    j_k = [planets.index(p) for p in k_planets]
+    drop = {f"{v}[{j}]" for j in j_k for v in ("t0", "log_period", "period", "K")}
+    core = s[[i not in drop and not i.startswith("K_circ") for i in s.index]]
     ss = trace.sample_stats
     post = trace.posterior
     per_chain = {
@@ -120,6 +127,7 @@ def convergence(trace, model, planets):
     }
     return dict(
         rhat_max=float(s["r_hat"].max()), ess_bulk_min=float(s["ess_bulk"].min()),
+        rhat_core=float(core["r_hat"].max()), ess_core=float(core["ess_bulk"].min()),
         ess_tail_min=float(s["ess_tail"].min()),
         worst=s.sort_values("r_hat", ascending=False).head(6)[["r_hat", "ess_bulk"]].round(3).to_dict("index"),
         divergences=int(ss["diverging"].sum()),
@@ -141,7 +149,7 @@ def planet_table(trace, planets):
     return out
 
 
-def analyze(model, trace, n_obs, planets, progress=print):
+def analyze(model, trace, n_obs, planets, k_planets=(), progress=print):
     to_point = make_point_builder(model)
     draws, n_total = posterior_draws(model, trace)
     n_chain, n_draw = trace.posterior.sizes["chain"], trace.posterior.sizes["draw"]
@@ -179,7 +187,7 @@ def analyze(model, trace, n_obs, planets, progress=print):
     k = int(sum(np.size(v) for v in model.initial_point().values()))
     d_bar = float(np.mean(-2 * ll))
     d_hat = float(-2 * loglike(to_point({kk: np.median(d, axis=-1) for kk, d in draws.items()})))
-    conv, summary = convergence(trace, model, planets)
+    conv, summary = convergence(trace, model, planets, k_planets)
 
     return dict(
         k=k, n_obs=int(n_obs), mapping_error=err,

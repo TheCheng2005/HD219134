@@ -25,7 +25,7 @@ def status(base, run):
 
 def converged(m):
     c = m["convergence"]
-    return c["rhat_max"] <= CONVERGED["rhat"] and c["ess_bulk_min"] >= CONVERGED["ess"] and c["divergences"] == 0
+    return c["rhat_core"] <= CONVERGED["rhat"] and c["ess_core"] >= CONVERGED["ess"] and c["divergences"] == 0
 
 
 def fmt(x, nd=2):
@@ -41,7 +41,7 @@ def table(header, rows):
 def summarize(base):
     out = base / "summary"
     out.mkdir(parents=True, exist_ok=True)
-    metrics = {r.id: json.loads((base / r.id / "metrics.json").read_text())
+    metrics = {r.id: json.loads((base / r.id / "metrics.json").read_text(encoding="utf-8"))
                for r in RUNS if status(base, r) == "done"}
     md = ["# HD 219134 run suite: summary", "",
           f"{len(metrics)} of {len(RUNS)} runs finished. Regenerated after every run; "
@@ -58,16 +58,17 @@ def summarize(base):
     for r in RUNS:
         if r.id in metrics:
             c = metrics[r.id]["convergence"]
-            rows.append([r.id, fmt(c["rhat_max"], 3), f"{c['ess_bulk_min']:.0f}", c["divergences"],
+            rows.append([r.id, fmt(c["rhat_core"], 3), f"{c['ess_core']:.0f}", fmt(c["rhat_max"], 3), c["divergences"],
                          fmt(c["frac_max_treedepth"]), f"{c['median_steps']:.0f}",
                          "yes" if converged(metrics[r.id]) else "**no**",
                          ", ".join(f"{p:.2f}" for p in c["per_chain_medians"]["P_rot"])])
     md += ["## Convergence",
            "",
-           f"Converged = R-hat <= {CONVERGED['rhat']}, bulk ESS >= {CONVERGED['ess']}, no divergences. "
-           "Per-chain P_rot medians show whether chains agree.", "",
-           table(["run", "R-hat max", "ESS min", "divergences", "frac max depth", "steps/draw", "converged",
-                  "P_rot per chain"], rows), ""]
+           f"Converged = R-hat <= {CONVERGED['rhat']}, bulk ESS >= {CONVERGED['ess']} and no divergences, "
+           "judged without the period, phase and K of K-prior planets (unconstrained when K is near 0; "
+           "'R-hat all' includes them). Per-chain P_rot medians show whether chains agree.", "",
+           table(["run", "R-hat", "ESS min", "R-hat all", "divergences", "frac max depth", "steps/draw",
+                  "converged", "P_rot per chain"], rows), ""]
 
     # 3. model comparison (real data only)
     ref = metrics.get("paper_M4")
@@ -84,7 +85,7 @@ def summarize(base):
                          dic=m["dic"], d_dic=m["dic"] - ref["dic"] if ref else None,
                          converged=converged(m)))
     if comp:
-        with open(out / "model_comparison.csv", "w", newline="") as f:
+        with open(out / "model_comparison.csv", "w", newline="", encoding="utf-8") as f:
             w = csv.DictWriter(f, fieldnames=list(comp[0]))
             w.writeheader()
             w.writerows(comp)
@@ -141,7 +142,7 @@ def summarize(base):
         tex += [f"{c['model']} & {', '.join(c['planets'].split())} & {c['k']} & {c['d_ll_hat']:+.1f} & "
                 f"{c['d_bic']:+.1f} \\\\" for c in paper if c["d_bic"] is not None]
         tex += [r"\hline", r"\end{tabular}"]
-        (out / "model_comparison_paper.tex").write_text("\n".join(tex) + "\n")
+        (out / "model_comparison_paper.tex").write_text("\n".join(tex) + "\n", encoding="utf-8")
 
-    (out / "SUMMARY.md").write_text("\n".join(md) + "\n")
+    (out / "SUMMARY.md").write_text("\n".join(md) + "\n", encoding="utf-8")
     return out / "SUMMARY.md"
