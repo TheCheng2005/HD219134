@@ -17,6 +17,7 @@ dependencies:
   - matplotlib
   - pandas
   - tqdm
+  - setuptools<81        # celerite2 0.3.2 imports pkg_resources, removed in setuptools 81
   - pip
   - pip:
       - exoplanet==0.6.0
