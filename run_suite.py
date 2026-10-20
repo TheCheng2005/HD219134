@@ -2,8 +2,8 @@
 
     python run_suite.py                 check the setup, then run every unfinished or failed run
     python run_suite.py --list          show runs and their status
-    python run_suite.py --only paper_M4,nested_M4+f
-    python run_suite.py --group paper   (paper, nested, kprior, prot; comma-separated)
+    python run_suite.py --only main_M4,test_M4+f
+    python run_suite.py --group main    (main = the paper's five configurations, test = internal checks)
     python run_suite.py --jobs 2        runs at once (default: CPU cores // 4)
     python run_suite.py --skip-failed   leave runs that failed before alone
     python run_suite.py --quick         tiny end-to-end test of the pipeline (results_quick/)

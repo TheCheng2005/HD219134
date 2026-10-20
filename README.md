@@ -1,8 +1,9 @@
 # HD 219134 run suite
 
 Joint TESS + radial-velocity modeling of HD 219134 with `exoplanet`, PyMC and a celerite2
-rotation GP (Elliott et al., in prep.). This repository reruns every model the paper relies on,
-plus the tests needed to settle the disputed planets f, g and i, unattended, on one machine.
+rotation GP (Elliott et al., in prep.). This repository reruns the five planet configurations the
+paper reports, plus four internal checks on the disputed planets f, g and i, unattended, on one
+machine.
 
 One command does everything:
 
@@ -10,7 +11,7 @@ One command does everything:
 python run_suite.py
 ```
 
-It checks the setup, then works through 22 runs, most informative first, a few at a time.
+It checks the setup, then works through 9 runs, a few at a time.
 After every run it updates `results/summary/SUMMARY.md`. Finished runs are skipped and
 unfinished or failed ones are redone, so after a crash, reboot or Ctrl-C, just run the same
 command again.
@@ -30,9 +31,9 @@ adopted 4-planet fit itself converged and holds up.
 | 2 | BIC built from the *median* ln L | bigger models penalized twice; unstable for unconverged runs | BIC from the best fit, ln L̂ |
 | 3 | A best fit without priors is meaningless here | the GP drifts to absurd periods and absorbs planets | ln L̂ keeps the priors |
 | 4 | The 5- and 6-planet runs never converged | their medians and uncertainties describe no real solution | better starting points, better parameterization, automatic diagnostics |
-| 5 | Log-mass priors cannot let a planet vanish | "no planet" is never allowed; causes problem 4 | K ~ U(0, 10) m/s for disputed planets |
-| 6 | Planet f sits at the rotation period | "the GP explains f" is expected whether or not f is real | P_rot tests and injection-recovery |
-| 7 | No direct test of single planets | a ΔBIC can't be pinned on one planet | nested runs b c d h + f, b c d h + g |
+| 5 | Log-mass priors centered on published masses | "no planet" is never allowed; the RVs count twice; causes problem 4 | K ~ U(0, 20) m/s for every planet; f, g, i circular |
+| 6 | Planet f sits at the rotation period | "the GP explains f" is expected whether or not f is real | injection of a planet at P_rot, with a control |
+| 7 | No direct test of single planets | a ΔBIC can't be pinned on one planet | internal runs b c d h + f, b c d h + g |
 | 8 | Five copied scripts drifted apart | runs differ in ways the paper doesn't say | one model builder, verified |
 | 9 | The MAP starting point wasn't a best fit | poor starts for the sampler | chains start from the converged 4-planet posterior |
 
@@ -105,18 +106,18 @@ it counts how often chains move *between* regions, and they never do.
 *Consequence:* the medians and uncertainties quoted for these models (f's periods, g's mass,
 the median ln L) are averages over chains that disagree, so they describe no real solution.
 
-*Suite:* each chain starts from a different draw of the converged 4-planet posterior; the
-`kprior` runs remove the worst geometry (problem 5); and every run gets an automatic convergence
+*Suite:* each chain starts from a different draw of the converged 4-planet posterior; the new
+priors and circular orbits for f, g and i remove the worst geometry (problem 5); and every run gets an automatic convergence
 report (R̂, ESS, divergences, per-chain medians). An unconverged run can still give ln L̂, since an
 optimum needs only one good point, but its posterior medians are flagged and should not be quoted.
 
-### Problem 5: a log-mass prior never lets a planet vanish
+### Problem 5: log-mass priors centered on published masses
 
-The disputed planets had priors on log₁₀ mass, centered on the literature value. For f,
+Every planet had a prior on log₁₀ mass, centered on its published value. For f,
 log₁₀ m ~ N(log₁₀ 7.4, 0.5). Zero mass is log m = −∞, so it is never reached. In practice this
 prior puts 95% of its probability between about 0.8 and 70 M⊕ (K ≈ 0.2–19 m/s), and only about
 0.3% below K = 0.1 m/s. It effectively states that f exists with roughly its published mass. This
-has three consequences:
+has four consequences:
 
 1. **No "no planet" answer.** The data can pull the mass down a few σ, but the posterior can
    never say "consistent with zero", so the test is not neutral.
@@ -125,16 +126,20 @@ has three consequences:
    small log m. There the planet's period, phase and eccentricity stop affecting the fit, and the
    posterior narrows into a funnel that NUTS cannot step through: divergences, maximum tree depth,
    stuck chains.
+4. **The RVs count twice.** The published masses (Motalebi et al. 2015, Gillon et al. 2017, Vogt
+   et al. 2015) were measured from largely the same HARPS-N and HIRES velocities fitted here, so
+   priors centered on them pull the results toward the published values.
 
-*Suite:* the `kprior` runs give each disputed planet a **linear** prior on its RV semi-amplitude,
-K ~ U(0, 10) m/s, which includes zero. If the data don't want the planet, the posterior piles up
+*Suite:* every planet gets a **linear** prior on its RV semi-amplitude, K ~ U(0, 20) m/s, which
+includes zero; masses are derived from K. If the data don't want a planet, its posterior piles up
 near K = 0, and the 2.5th percentile of K answers the question directly. K rather than mass,
 because K is what the RVs measure (at fixed period K ∝ m sin i, so the two are nearly equivalent).
-These runs also fix e = 0 for the disputed planets, removing the eccentricity directions that a
-~2 m/s signal cannot constrain anyway. The confirmed planets (b, c, d, h) keep the paper's log-mass
-priors: their posteriors sit far from zero, so the choice does not matter for them. The paper-prior
-runs remain in the suite for comparison. Two caveats: e = 0 is a modeling choice, and U(0, 10) puts
-more prior weight at large K than a log prior (this affects a Bayesian evidence, not ΔBIC).
+The upper bound only needs to sit well above the largest signal (h, K ≈ 5.6 m/s). f, g and i are
+also fitted on circular orbits, removing the eccentricity directions that a ~2 m/s signal cannot
+constrain; b, c, d and h stay eccentric. b, c, d and h are detected at K/σ_K ≳ 20, so their
+posteriors should move well under 1σ from the paper's; `main_M4` against the converged paper run
+checks this. Two caveats: e = 0 for f, g, i is a modeling choice, and a uniform prior puts more
+weight at large K than a log prior (this affects a Bayesian evidence, not ΔBIC).
 
 ### Problem 6: planet f sits at the rotation period, so the test is circular
 
@@ -144,21 +149,23 @@ out **whether or not f is real**. And by problem 3, P_rot is fixed by its prior 
 measured. When the GP was moved to ~41 d (the draft's Table 9 runs), f came back at 22.80 d with
 K ≈ 2.1–2.4 m/s.
 
-*Suite:* the `prot` runs test this directly:
-- **Broad prior:** P_rot ~ U(15, 50) d, with two chains starting at 22.56 d and two at 42 d.
-- **41-d prior:** P_rot ~ N(41.2, 2.8) d.
-- **Injection at P_rot:** a synthetic K = 2.3 m/s planet is added *at* 22.56 d. If the GP swallows
-  it, these fits cannot decide whether f is a planet.
-- **Injections away from P_rot** (27 and 33 d) should be recovered.
-- **Null runs**, with the same models and no injection, should give K ≈ 0.
+*Suite:* two internal runs test this directly:
+- `test_inject_22.56`: a synthetic K = 2.3 m/s planet is added to the RVs *at* 22.56 d and fitted
+  with the GP at P_rot. If the GP swallows it, these fits cannot decide whether f is a planet.
+- `test_inject_27.0`: the same injection at 27 d, away from P_rot, as a control that should be
+  recovered.
+
+Tests with a broad or a 41-d P_rot prior are planned for later; `hd219134/model.py` already
+accepts other P_rot priors.
 
 ### Problem 7: no direct test of a single planet
 
 The published configurations change several planets at once. For example, 4-Planet-G adds f
 **and** drops h, so its poor BIC mostly measures losing h, not anything about f.
 
-*Suite:* `nested_M4+f` and `nested_M4+g` add exactly one disputed planet to the adopted model
-(plus the `kprior` versions). These are the comparisons that actually test f and g.
+*Suite:* `test_M4+f` and `test_M4+g` add exactly one disputed planet to the adopted model.
+These are the comparisons that actually test f and g. They guide the paper's wording but are not
+reported.
 
 ### Problem 8: five copied scripts drifted apart
 
@@ -168,9 +175,10 @@ mention:
 - The P_rot prior was changed for test runs and changed back.
 - Some table entries could not be traced to a specific run.
 
-*Suite:* one model builder (`hd219134/model.py`). With the paper options it reproduces the four
-consistent scripts' log-probability **exactly**, and the 6-planet one exactly once its bound is set
-to 0.05, which the suite uses throughout. Every run records its full specification, random seed
+*Suite:* one model builder (`hd219134/model.py`). With the paper's priors (`mass_prior="lognormal"`)
+it reproduces the four consistent scripts' log-probability **exactly**, and the 6-planet one exactly
+once its bound is set to 0.05, which the suite uses throughout. The suite's runs then use the new
+mass priors (problem 5). Every run records its full specification, random seed
 and package versions, and the tables in `results/summary/` are generated from the runs, never typed.
 
 ### Problem 9: the MAP starting point was not a best fit
@@ -178,8 +186,9 @@ and package versions, and the tables in `results/summary/` are generated from th
 The staged `pmx.optimize` "MAP" used to start the chains ended about 450 in ln L **below** the
 posterior median, so it was a poor start and not a best fit.
 
-*Suite:* no MAP stage. Chains start from draws of the converged 4-planet posterior; other
-planets start at their literature values.
+*Suite:* no MAP stage. Chains start from draws of the converged 4-planet posterior; f, g and i
+start at their published period, phase and mass (as K). Under a uniform prior the starting point
+does not favour a planet; it only saves tuning time.
 
 ---
 
@@ -212,7 +221,7 @@ planets start at their literature values.
    If the compiler check fails, run `conda install -c conda-forge "pytensor=2.31.7" gxx` and try again.
 6. **Smoke test the whole pipeline** (about 15–30 minutes; tiny chains, results are meaningless):
    ```
-   python run_suite.py --quick --only paper_M4,kprior_M4+f
+   python run_suite.py --quick --only main_M4,test_M4+f
    ```
    Output goes to `results_quick\` and can be deleted afterwards.
 
@@ -228,8 +237,8 @@ python run_suite.py
 |---|---|
 | `python run_suite.py` | run everything not yet finished, including runs that failed before |
 | `python run_suite.py --list` | status of every run (done / running / pending / FAILED) |
-| `python run_suite.py --group paper,nested` | only some groups |
-| `python run_suite.py --only paper_M4,kprior_M4+f` | only some runs |
+| `python run_suite.py --group main` | only the five reported configurations (`test` = internal checks) |
+| `python run_suite.py --only main_M4,test_M4+f` | only some runs |
 | `python run_suite.py --jobs 2` | runs at once (default: logical processors ÷ 4; see below) |
 | `python run_suite.py --skip-failed` | leave runs that failed before alone |
 | `python run_suite.py --summary` | just rebuild `results/summary/` |
@@ -264,31 +273,38 @@ files open in Excel while the suite runs; Excel locks them.
 
 Each run samples 4 chains × (1500 tuning + 1500 kept) iterations on 4 cores. On the reference
 Mac the converged 4-planet model took 12 h; the published 5- and 6-planet models took 35–37 h,
-because the sampler hit its step limit on almost every iteration. With 16 cores (4 runs at once),
-expect roughly 5–8 days for all 22 runs; with 8 cores, about twice that. The order puts the runs
-that decide the paper's conclusions first, so useful results arrive within the first 1–2 days.
+because the sampler hit its step limit on almost every iteration; the new priors should bring the
+extended models closer to the 4-planet case. With 16 physical cores (4 runs at once) expect roughly
+2–3 days for all 9 runs; with 8 (`--jobs 2`), about 4–5 days. The five reported configurations run
+first.
 
 ## 5. The runs
 
-Planets: b, c (transiting), d, h (adopted); f, g, i (disputed); x (synthetic). P_rot prior:
-N(22.56, 0.29) d from the TESS SAP periodogram unless stated otherwise.
+Planets: b, c (transiting), d, h (adopted); f, g, i (disputed); x (synthetic, injected).
 
-| Run | Group | What it tests |
+| Run | Group | What it is |
 |---|---|---|
-| `paper_M4` | paper | adopted model b c d h (4-Planet-M) |
-| `paper_G4` `paper_P5` `paper_V6` `paper_H6` | paper | the other published configurations, same priors as the paper |
-| `nested_M4+f`, `nested_M4+g` | nested | adopted model plus exactly one disputed planet: the direct test of f and of g |
-| `kprior_M4+f`, `kprior_M4+g`, `kprior_P5`, `kprior_G4`, `kprior_V6`, `kprior_H6` | kprior | disputed planets on circular orbits with K ~ U(0, 10) m/s, so the data can switch them off (K = 0). Their log-normal mass priors in the paper could not reach zero. |
-| `prot_broad_M4`, `prot_broad_M4+f` | prot | P_rot ~ U(15, 50) d; two chains start at 22.56 d, two at 42 d |
-| `prot_41_M4`, `prot_41_M4+f` | prot | P_rot ~ N(41.2, 2.8) d (the 41-d test of Table 9) |
-| `inject_22.56` | prot | adds a K = 2.3 m/s circular planet **at** P_rot. If it is not recovered, the GP absorbs real planets at the rotation period, and "f is activity" cannot be concluded from these fits. |
-| `inject_27.0`, `inject_33.0` | prot | the same injection away from P_rot (should be recovered) |
-| `null_27.0`, `null_33.0` | prot | same models as the injections, but with no injected signal (K should be consistent with 0) |
+| `main_M4` | main | 4-Planet-M: b c d h, the adopted model |
+| `main_H6` | main | 6-Planet-H: b c f d i h (Harada et al. 2025) |
+| `main_G4` | main | 4-Planet-G: b c f d (Gillon et al. 2017) |
+| `main_P5` | main | 5-Planet: b c d i h |
+| `main_V6` | main | 6-Planet-V: b c f d g h (Vogt et al. 2015) |
+| `test_M4+f` | test | b c d h + f: does f alone improve the fit? |
+| `test_inject_22.56` | test | K = 2.3 m/s planet injected **at** P_rot. If it is not recovered, the GP absorbs real planets at the rotation period, and "f is activity" cannot be concluded from these fits. |
+| `test_M4+g` | test | b c d h + g: does g alone improve the fit? |
+| `test_inject_27.0` | test | the same injection at 27 d, away from P_rot; should be recovered |
 
-Every chain starts from a different draw of the converged paper 4-planet posterior
-(`data/init/m4_paper_posterior_draws.npz`); planets not in that model start at their literature
-values, and K-prior planets at K = 0.5, 1.5, 2.5 or 3.5 m/s depending on the chain, so chains
-that end up in different modes show it.
+The `main` runs are the paper's Table 6 configurations; `test` runs are internal and not reported.
+
+**Model settings (all runs).** These differ from the September draft, and §5 should describe them:
+- every planet: K ~ U(0, 20) m/s, masses derived from K (problem 5);
+- f, g, i and x: circular orbits; b, c, d, h: free e and ω, as before;
+- everything else as in the paper: P_rot ~ N(22.56, 0.29) d, Li et al. (2025) stellar mass,
+  literature priors on periods and phases, the same GP, offsets, jitters and activity term.
+
+**Starting points.** Every chain starts from a different draw of the converged paper 4-planet
+posterior (`data/init/m4_paper_posterior_draws.npz`); f, g, i and x start at their published (or
+injected-model) period, phase and mass, converted to K.
 
 ## 6. What the numbers mean
 
@@ -302,12 +318,12 @@ See problems 2 and 3 above for why these definitions were chosen.
   model, so without priors the optimizer sends P_rot to thousands of days, and the GP then
   absorbs planets.
 - **BIC** = k ln n − 2 ln L̂, with k the number of free parameters and n = 81,886 data points.
-  The table reports ΔBIC relative to `paper_M4`; negative favours the other model.
+  The table reports ΔBIC relative to `main_M4`; negative favours the other model.
 - **median ln L**: shown for reference only. It sits below ln L̂ by an amount that grows with k
   even for perfect runs, and for unconverged runs it mostly reflects where the chains got stuck.
 - **DIC** = D̄ + p_D with D = −2 ln L.
 - **Converged** = R̂ ≤ 1.01, bulk ESS ≥ 400 and no divergences, judged without the period,
-  phase and K of K-prior planets. When such a planet's K is near 0, those parameters are
+  phase and K of the circular planets (f, g, i, x). When such a planet's K is near 0, those parameters are
   unconstrained, so their R̂ says nothing about the rest of the fit. The summary also shows R̂
   over all parameters. Unconverged runs can still give ln L̂ (an optimum only needs one good
   point), but not posterior medians or uncertainties. The summary flags them.
@@ -319,8 +335,8 @@ See problems 2 and 3 above for why these definitions were chosen.
 run_suite.py              runs everything (see section 3)
 hd219134/data.py          TESS + RV loading and cleaning
 hd219134/planets.py       literature priors for every planet; the published configurations
-hd219134/model.py         the joint model; K-prior and P_rot-prior options; RV injection
-hd219134/runs.py          the 22 runs and sampling settings
+hd219134/model.py         the joint model (uniform-K or the paper's log-mass priors); RV injection
+hd219134/runs.py          the 9 runs, starting points and sampling settings
 hd219134/run_one.py       samples and analyzes one run
 hd219134/metrics.py       ln L, ln L-hat, BIC, DIC, convergence, planet tables
 hd219134/summarize.py     results/summary/ (SUMMARY.md, model_comparison.csv, LaTeX table)

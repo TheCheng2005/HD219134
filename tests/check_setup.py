@@ -60,7 +60,7 @@ def main(write_reference=False):
     timing = None
     for run in RUNS:
         d = inject_rv_signal(data, *run.injection) if run.injection else data
-        model = build_model(d, run.planets, catalog=run.catalog, k_planets=run.k_planets, prot_prior=run.prot_prior)
+        model = build_model(d, run.planets, catalog=run.catalog, circular=run.circular)
         point = make_point_builder(model)(chain_initvals(run, 1)[0])
         f = model.compile_fn([model.logp(), *pytensor.grad(model.logp(), model.value_vars)],
                              inputs=model.value_vars, on_unused_input="ignore")
@@ -72,7 +72,7 @@ def main(write_reference=False):
                   f"{run.id:18s} logp {lp:.6f} (reference {ref[run.id]:.6f})")
         else:
             check(finite, f"{run.id:18s} logp {lp:.6f} finite, gradient finite (no reference value)")
-        if run.id == "paper_M4":
+        if run.id == "main_M4":
             f(point)
             t = time.time()
             for _ in range(10):

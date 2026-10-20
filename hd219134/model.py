@@ -1,11 +1,13 @@
 """Joint TESS + RV model with a shared-period celerite2 RotationTerm GP.
 
-With k_planets=() and the default P_rot prior this is exactly the model of the
-paper-era rv_lc_gp_*.py scripts (tests/check_setup.py verifies the log-probability
-matches them to machine precision). Options:
+Options:
 
-  k_planets   planets fitted on circular orbits with K ~ Uniform(0, k_max) m/s instead
-              of a log-normal mass prior, so the planet can vanish (K = 0).
+  mass_prior  "uniform_K" (the suite's runs): every planet's RV semi-amplitude K ~ U(0, k_max)
+              m/s; masses are derived. "lognormal": the paper-era log10-mass priors centered
+              on published masses; with circular=() this is exactly the model of the old
+              rv_lc_gp_*.py scripts (log-probability identical to machine precision).
+  circular    planets fitted on circular orbits (the suite uses this for f, g, i and the
+              injected planet x); the others have free e and omega.
   prot_prior  ("normal", mu, sigma) or ("uniform", lower, upper) for P_rot [d].
 """
 import dataclasses
@@ -29,9 +31,17 @@ TESS_PROT = ("normal", 22.56, 0.29)  # SAP periodogram, Section 4
 
 
 def mass_from_K(K, P_days, m_star, ecc=0.0):
-    """Minimum mass [M_earth] for semi-amplitude K [m/s] (m_planet << m_star)."""
-    return (K * 100.0 * np.sqrt(1 - ecc ** 2) * (P_days * 86400.0 / (2 * np.pi * G)) ** (1 / 3)
-            * (m_star * M_SUN) ** (2 / 3) / M_EARTH)
+    """Minimum mass [M_earth] for semi-amplitude K [m/s]. Works on numbers and pytensor variables.
+    One fixed-point step for the planet's own mass in (M + m); the residual error is ~(m/M)^2 < 1e-6."""
+    m0 = (K * 100.0 * (1 - ecc ** 2) ** 0.5 * (P_days * 86400.0 / (2 * np.pi * G)) ** (1 / 3)
+          * (m_star * M_SUN) ** (2 / 3) / M_EARTH)
+    return m0 * (1 + m0 * M_EARTH / (m_star * M_SUN)) ** (2 / 3)
+
+
+def K_from_mass(m_earth, P_days, m_star, ecc=0.0):
+    """RV semi-amplitude [m/s] of a planet of minimum mass m_earth [M_earth]."""
+    m, M = m_earth * M_EARTH, m_star * M_SUN
+    return (2 * np.pi * G / (P_days * 86400.0)) ** (1 / 3) * m / (M + m) ** (2 / 3) / (1 - ecc ** 2) ** 0.5 / 100.0
 
 
 def inject_rv_signal(data, P, K, t0, m_star=0.763, r_star=0.792):
@@ -44,13 +54,15 @@ def inject_rv_signal(data, P, K, t0, m_star=0.763, r_star=0.792):
     return dataclasses.replace(data, y_rv=data.y_rv + signal)
 
 
-def build_model(data, planets, catalog=PLANETS, k_planets=(), prot_prior=TESS_PROT, k_max=10.0):
+def build_model(data, planets, catalog=PLANETS, mass_prior="uniform_K", circular=(), prot_prior=TESS_PROT,
+                k_max=20.0):
     names = list(planets)
     n = len(names)
     ntransit = sum(p in TRANSITING for p in names)
     assert all(p in TRANSITING for p in names[:ntransit]), "transiting planets must come first"
-    kep = [i for i, p in enumerate(names) if p not in k_planets]
-    circ = [i for i, p in enumerate(names) if p in k_planets]
+    assert mass_prior in ("uniform_K", "lognormal")
+    assert not (circular and mass_prior == "lognormal"), "circular orbits are only set up for uniform_K"
+    kep = [i for i, p in enumerate(names) if p not in circular]  # eccentric planets
     cat = [catalog[p] for p in names]
     col = lambda key: np.array([c[key] for c in cat], dtype=float)
 
@@ -84,30 +96,26 @@ def build_model(data, planets, catalog=PLANETS, k_planets=(), prot_prior=TESS_PR
                                initval=log_periods_lit)
         period = pm.Deterministic("period", 10 ** log_period)
 
+        if mass_prior == "lognormal":
+            log_m_pl = pm.Normal("log_m_pl", mu=mass_mu, sigma=col("logM_sigma"), shape=n)
         nk = len(kep)
-        log_m_pl = pm.Normal("log_m_pl", mu=mass_mu[kep], sigma=col("logM_sigma")[kep], shape=nk)
         secosw = pm.Uniform("secosw", lower=-1.0, upper=1.0, initval=np.sqrt(col("e_init")[kep]), shape=nk)
         sesinw = pm.Uniform("sesinw", lower=-1.0, upper=1.0, initval=[0.01] * nk, shape=nk)
         e_raw = pt.square(secosw) + pt.square(sesinw)
 
-        if not circ:  # paper parameterization, kept literally identical
+        if mass_prior == "lognormal":  # paper parameterization, kept literally identical
             m_pl = pm.Deterministic("m_pl", 10 ** log_m_pl)
             ecc = pm.Deterministic("ecc", pt.clip(e_raw, 0.0, 0.9999))
             omega = pm.Deterministic("omega", pt.arctan2(sesinw, secosw))
         else:
-            K_circ = pm.Uniform("K_circ", lower=0.0, upper=k_max, shape=len(circ))
-            m_circ = (K_circ * 100.0 * (period[circ] * 86400.0 / (2 * np.pi * G)) ** (1 / 3)
-                      * (m_star * M_SUN) ** (2 / 3) / M_EARTH)
+            K_pl = pm.Uniform("K_pl", lower=0.0, upper=k_max, shape=n)
             zeros = pt.zeros(n)
-            m_pl = pm.Deterministic("m_pl", pt.set_subtensor(
-                pt.set_subtensor(zeros[kep], 10 ** log_m_pl)[circ], m_circ))
             ecc = pm.Deterministic("ecc", pt.set_subtensor(zeros[kep], pt.clip(e_raw, 0.0, 0.9999)))
             omega = pm.Deterministic("omega", pt.set_subtensor(zeros[kep], pt.arctan2(sesinw, secosw)))
+            m_pl = pm.Deterministic("m_pl", mass_from_K(K_pl, period, m_star, ecc))
         pm.Potential("e_bound", pm.math.log(pt.sigmoid((0.9999 - e_raw) * 500)))
 
-        m_g, M_g = m_pl * M_EARTH, m_star * M_SUN
-        pm.Deterministic("K", (2 * np.pi * G / (period * 86400.0)) ** (1 / 3) * m_g
-                         / (M_g + m_g) ** (2 / 3) / pt.sqrt(1 - ecc ** 2) / 100.0)
+        pm.Deterministic("K", K_from_mass(m_pl, period, m_star, ecc))
 
         # Geometry
         b_transiting = pm.Uniform("b_transiting", lower=0.0, upper=1, shape=ntransit, initval=impact_p_lit)

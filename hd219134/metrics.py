@@ -109,15 +109,14 @@ def describe(model, point):
     return d
 
 
-def convergence(trace, model, planets, k_planets=()):
-    """R-hat/ESS over all parameters, and over all except the period, phase and K of K-prior
-    planets: when such a planet's K is near 0 those are unconstrained and their R-hat says
-    nothing about the rest of the fit."""
+def convergence(trace, model, planets, circular=()):
+    """R-hat/ESS over all parameters, and over all except the period, phase and K of the
+    circular (disputed or injected) planets: when such a planet's K is near 0 those are
+    unconstrained and their R-hat says nothing about the rest of the fit."""
     names = [rv.name for rv in model.free_RVs] + ["K", "period"]
     s = az.summary(trace, var_names=names, kind="diagnostics")
-    j_k = [planets.index(p) for p in k_planets]
-    drop = {f"{v}[{j}]" for j in j_k for v in ("t0", "log_period", "period", "K")}
-    core = s[[i not in drop and not i.startswith("K_circ") for i in s.index]]
+    drop = {f"{v}[{planets.index(p)}]" for p in circular for v in ("t0", "log_period", "period", "K", "K_pl")}
+    core = s[[i not in drop for i in s.index]]
     ss = trace.sample_stats
     post = trace.posterior
     per_chain = {
@@ -149,7 +148,7 @@ def planet_table(trace, planets):
     return out
 
 
-def analyze(model, trace, n_obs, planets, k_planets=(), progress=print):
+def analyze(model, trace, n_obs, planets, circular=(), progress=print):
     to_point = make_point_builder(model)
     draws, n_total = posterior_draws(model, trace)
     n_chain, n_draw = trace.posterior.sizes["chain"], trace.posterior.sizes["draw"]
@@ -187,7 +186,7 @@ def analyze(model, trace, n_obs, planets, k_planets=(), progress=print):
     k = int(sum(np.size(v) for v in model.initial_point().values()))
     d_bar = float(np.mean(-2 * ll))
     d_hat = float(-2 * loglike(to_point({kk: np.median(d, axis=-1) for kk, d in draws.items()})))
-    conv, summary = convergence(trace, model, planets, k_planets)
+    conv, summary = convergence(trace, model, planets, circular)
 
     return dict(
         k=k, n_obs=int(n_obs), mapping_error=err,

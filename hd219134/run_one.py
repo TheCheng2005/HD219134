@@ -62,15 +62,14 @@ def main(run_id, quick=False):
     log = lambda msg: print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] {msg}", flush=True)
 
     log(f"run {run.id}: {run.note}")
-    log(f"planets {run.planets}, K-prior planets {run.k_planets}, P_rot prior {run.prot_prior}, "
+    log(f"planets {run.planets}, circular {run.circular}, K ~ U(0, 20) m/s, P_rot ~ N(22.56, 0.29), "
         f"injection {run.injection}, sampling {cfg}, seed {run.seed}")
 
     data = load_data(verbose=False)
     if run.injection:
         P, K, t0 = run.injection
         data = inject_rv_signal(data, P, K, t0)
-    model = build_model(data, run.planets, catalog=run.catalog, k_planets=run.k_planets,
-                        prot_prior=run.prot_prior)
+    model = build_model(data, run.planets, catalog=run.catalog, circular=run.circular)
 
     with model:
         trace = pm.sample(
@@ -84,14 +83,14 @@ def main(run_id, quick=False):
     t_sampled = time.time()
     log(f"sampling done in {(t_sampled - t_start) / 3600:.2f} h; analyzing")
 
-    metrics, summary = analyze(model, trace, data.n_obs, list(run.planets), k_planets=run.k_planets, progress=log)
+    metrics, summary = analyze(model, trace, data.n_obs, list(run.planets), circular=run.circular, progress=log)
     summary_full = az.summary(trace, var_names=["P_rot", "period", "K", "m_pl", "ecc", "rv_offsets",
                                                 "rv_jitters", "C_activity", "log_sigma_rv_gp", "m_star", "r_star"])
     summary_full.to_csv(out / "summary.csv")
     summary.to_csv(out / "diagnostics_all_parameters.csv")
 
     metrics.update(
-        run=dataclasses.asdict(run), seed=run.seed, sampling=cfg, quick=quick,
+        run=dict(dataclasses.asdict(run), circular=run.circular), seed=run.seed, sampling=cfg, quick=quick,
         hours_sampling=(t_sampled - t_start) / 3600, hours_total=(time.time() - t_start) / 3600,
         versions=dict(python=sys.version.split()[0], pymc=pm.__version__, pytensor=pytensor.__version__,
                       arviz=az.__version__, numpy=np.__version__, platform=platform.platform(),
@@ -100,7 +99,7 @@ def main(run_id, quick=False):
     (out / "metrics.json").write_text(json.dumps(metrics, indent=1), encoding="utf-8")
     (out / "done.json").write_text(json.dumps(dict(finished=time.strftime("%Y-%m-%d %H:%M:%S"))), encoding="utf-8")
     c = metrics["convergence"]
-    log(f"done: R-hat max {c['rhat_max']:.3f} ({c['rhat_core']:.3f} excluding K-prior planets), "
+    log(f"done: R-hat max {c['rhat_max']:.3f} ({c['rhat_core']:.3f} excluding circular planets), "
         f"ESS min {c['ess_bulk_min']:.0f} ({c['ess_core']:.0f}), divergences {c['divergences']}, "
         f"ln L-hat {metrics['ll_hat']:.2f}, BIC {metrics['bic']:.2f}")
 

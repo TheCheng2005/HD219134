@@ -8,8 +8,8 @@ import json
 from .runs import RUNS
 
 CONVERGED = dict(rhat=1.01, ess=400)
-NAMES = {"paper_M4": "4-Planet-M", "paper_G4": "4-Planet-G", "paper_P5": "5-Planet",
-         "paper_V6": "6-Planet-V", "paper_H6": "6-Planet-H"}
+NAMES = {"main_M4": "4-Planet-M", "main_G4": "4-Planet-G", "main_P5": "5-Planet",
+         "main_V6": "6-Planet-V", "main_H6": "6-Planet-H"}
 
 
 def status(base, run):
@@ -65,22 +65,22 @@ def summarize(base):
     md += ["## Convergence",
            "",
            f"Converged = R-hat <= {CONVERGED['rhat']}, bulk ESS >= {CONVERGED['ess']} and no divergences, "
-           "judged without the period, phase and K of K-prior planets (unconstrained when K is near 0; "
+           "judged without the period, phase and K of circular planets (unconstrained when K is near 0; "
            "'R-hat all' includes them). Per-chain P_rot medians show whether chains agree.", "",
            table(["run", "R-hat", "ESS min", "R-hat all", "divergences", "frac max depth", "steps/draw",
                   "converged", "P_rot per chain"], rows), ""]
 
     # 3. model comparison (real data only)
-    ref = metrics.get("paper_M4")
+    ref = metrics.get("main_M4")
     comp = []
     for r in RUNS:
         m = metrics.get(r.id)
-        if m is None or r.injection or "x" in r.planets:
+        if m is None or r.injection:
             continue
         dll = m["ll_hat"] - ref["ll_hat"] if ref else None
         dbic = m["bic"] - ref["bic"] if ref else None
         comp.append(dict(run=r.id, model=NAMES.get(r.id, r.id), planets=" ".join(r.planets),
-                         k_planets=" ".join(r.k_planets), prot_prior=str(r.prot_prior), k=m["k"],
+                         circular=" ".join(r.circular), k=m["k"],
                          ll_hat=m["ll_hat"], ll_median=m["ll_median"], d_ll_hat=dll, d_bic=dbic,
                          dic=m["dic"], d_dic=m["dic"] - ref["dic"] if ref else None,
                          converged=converged(m)))
@@ -89,13 +89,12 @@ def summarize(base):
             w = csv.DictWriter(f, fieldnames=list(comp[0]))
             w.writeheader()
             w.writerows(comp)
-    md += ["## Model comparison (relative to paper_M4)", "",
+    md += ["## Model comparison (relative to main_M4)", "",
            "ln L-hat is the best fit inside the posterior's support. Negative dBIC favours the run over "
-           "paper_M4. prot_* runs use a different P_rot prior: their rows say how well the data can be fit "
-           "with the GP at that rotation period (see 'P_rot per chain' above), not which planets exist.", "",
-           table(["run", "planets", "K-prior", "k", "ln L-hat", "d ln L-hat", "dBIC", "median ln L", "dDIC",
+           "main_M4. The main_* rows are the paper's Table 6; test_* rows are internal checks.", "",
+           table(["run", "planets", "circular", "k", "ln L-hat", "d ln L-hat", "dBIC", "median ln L", "dDIC",
                   "converged"],
-                 [[c["run"], c["planets"], c["k_planets"], c["k"], fmt(c["ll_hat"]), fmt(c["d_ll_hat"]),
+                 [[c["run"], c["planets"], c["circular"], c["k"], fmt(c["ll_hat"]), fmt(c["d_ll_hat"]),
                    fmt(c["d_bic"]), fmt(c["ll_median"]), fmt(c["d_dic"]), "yes" if c["converged"] else "**no**"]
                   for c in comp]), ""]
 
@@ -108,7 +107,7 @@ def summarize(base):
         for p in r.planets:
             if p in ("f", "g", "i", "x"):
                 q = m["planets"][p]
-                rows.append([r.id, p, "K-prior" if p in r.k_planets else "paper",
+                rows.append([r.id, p, "circular" if p in r.circular else "eccentric",
                              f"{q['period'][1]:.3f}", f"{q['K'][1]:.2f} (+{q['K'][2] - q['K'][1]:.2f}/"
                              f"-{q['K'][1] - q['K'][0]:.2f})", fmt(q["K_2.5pct"]),
                              fmt(m["best_fit"]["K"][r.planets.index(p)])])
@@ -124,18 +123,19 @@ def summarize(base):
         if m is None or "x" not in r.planets:
             continue
         q = m["planets"]["x"]
-        P_inj, K_inj = (r.injection[0], r.injection[1]) if r.injection else (float(r.id.split("_")[-1]), 0.0)
+        P_inj, K_inj = r.injection[0], r.injection[1]
         rows.append([r.id, f"{P_inj:.2f}", f"{K_inj:.1f}", f"{q['period'][1]:.3f}",
                      f"{q['K'][1]:.2f} [{q['K'][0]:.2f}, {q['K'][2]:.2f}]", fmt(q["K_2.5pct"]),
                      fmt(m["best_fit"]["P_rot"])])
     md += ["## Injection-recovery", "",
            "A planet injected at P_rot that comes back with K well below the injected value means the GP "
-           "absorbs real planets at the rotation period. Null runs should give K consistent with 0.", "",
+           "absorbs real planets at the rotation period. The 27-d control should come back near the "
+           "injected K.", "",
            table(["run", "P injected", "K injected", "P recovered", "K recovered [68%]", "K 2.5%",
                   "P_rot at best fit"], rows), ""]
 
     # 6. LaTeX for the paper configurations
-    paper = [c for c in comp if c["run"].startswith("paper_")]
+    paper = [c for c in comp if c["run"].startswith("main_")]
     if paper:
         tex = [r"\begin{tabular}{llrrr}", r"\hline",
                r"Model & Planets & $k$ & $\Delta\ln\hat{L}$ & $\Delta$BIC \\", r"\hline"]
