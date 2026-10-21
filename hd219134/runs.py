@@ -3,10 +3,11 @@
 Groups
   main   the five configurations reported in the paper
   test   internal checks that guide the wording, not reported: the adopted model plus one
-         disputed planet, and injection-recovery at and away from the rotation period
+         disputed planet, injection-recovery at and away from the rotation period, and the
+         adopted and 6-planet models with a broad P_rot prior
 
 All runs: K ~ U(0, 20) m/s for every planet; f, g, i (and the injected planet x) on circular
-orbits; P_rot ~ N(22.56, 0.29) d.
+orbits; P_rot ~ N(22.56, 0.29) d except in the broad-P_rot tests.
 """
 import pathlib
 import zlib
@@ -15,7 +16,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from .data import X_REF
-from .model import K_from_mass
+from .model import TESS_PROT, K_from_mass
 from .planets import CONFIGS, DISPUTED, PLANETS, injected_planet
 
 SAMPLING = dict(chains=4, tune=1500, draws=1500, target_accept=0.98)
@@ -24,6 +25,10 @@ QUICK_SAMPLING = dict(chains=2, tune=10, draws=10, target_accept=0.9)
 INIT_FILE = pathlib.Path(__file__).resolve().parent.parent / "data" / "init" / "m4_paper_posterior_draws.npz"
 K_INJ = 2.3                     # m/s, about the K reported for planet f
 T0_INJ = 2457000.0              # BJD, inside the dense HARPS-N/APF coverage
+BROAD_PROT = ("uniform", 10.0, 60.0)
+# One chain each: the TESS period, planet f's period, the ~41-d period of the draft's Table 9
+# runs, and twice f's period (RotationTerm also has power at P_rot / 2, so this puts it on f)
+BROAD_PROT_STARTS = (22.56, 22.79, 41.2, 45.6)
 
 
 @dataclass(frozen=True)
@@ -33,6 +38,8 @@ class Run:
     planets: tuple
     note: str
     injection: tuple = None      # (P [d], K [m/s], t0 [BJD]) added to the RVs before fitting
+    prot_prior: tuple = TESS_PROT
+    prot_starts: tuple = None    # P_rot [d] to start each chain at (default: the paper posterior draw)
 
     @property
     def circular(self):
@@ -69,6 +76,12 @@ RUNS = [
     Run("test_M4+g", "test", tuple(CONFIGS["M4+g"]), "b c d h + g: does g alone improve the fit?"),
     Run("test_inject_27.0", "test", _x(M4), "control: the same injection at 27.0 d, away from P_rot",
         injection=(27.0, K_INJ, T0_INJ)),
+    Run("test_H6_broadProt", "test", tuple(CONFIGS["H6"]),
+        "6-Planet-H with P_rot ~ U(10, 60) d, chains started at 22.56/22.79/41.2/45.6 d: does f survive "
+        "when the GP can move onto it?", prot_prior=BROAD_PROT, prot_starts=BROAD_PROT_STARTS),
+    Run("test_M4_broadProt", "test", tuple(M4),
+        "4-Planet-M with the same broad P_rot prior; compare with test_H6_broadProt, not with main_M4",
+        prot_prior=BROAD_PROT, prot_starts=BROAD_PROT_STARTS),
 ]
 RUNS_BY_ID = {r.id: r for r in RUNS}
 assert len(RUNS_BY_ID) == len(RUNS)
@@ -106,5 +119,7 @@ def chain_initvals(run, n_chains):
         iv["K_pl"] = np.array([per_planet[p]["K"] for p in run.planets])
         for k in ("secosw", "sesinw"):
             iv[k] = np.array([per_planet[p][k] for p in ecc_planets])
+        if run.prot_starts:
+            iv["P_rot"] = run.prot_starts[c % len(run.prot_starts)]
         out.append(iv)
     return out

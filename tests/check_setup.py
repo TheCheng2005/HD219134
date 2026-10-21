@@ -60,7 +60,7 @@ def main(write_reference=False):
     timing = None
     for run in RUNS:
         d = inject_rv_signal(data, *run.injection) if run.injection else data
-        model = build_model(d, run.planets, catalog=run.catalog, circular=run.circular)
+        model = build_model(d, run.planets, catalog=run.catalog, circular=run.circular, prot_prior=run.prot_prior)
         point = make_point_builder(model)(chain_initvals(run, 1)[0])
         f = model.compile_fn([model.logp(), *pytensor.grad(model.logp(), model.value_vars)],
                              inputs=model.value_vars, on_unused_input="ignore")

@@ -11,7 +11,7 @@ One command does everything:
 python run_suite.py
 ```
 
-It checks the setup, then works through 9 runs, a few at a time.
+It checks the setup, then works through 11 runs, a few at a time.
 After every run it updates `results/summary/SUMMARY.md`. Finished runs are skipped and
 unfinished or failed ones are redone, so after a crash, reboot or Ctrl-C, just run the same
 command again.
@@ -155,8 +155,12 @@ K ≈ 2.1–2.4 m/s.
 - `test_inject_27.0`: the same injection at 27 d, away from P_rot, as a control that should be
   recovered.
 
-Tests with a broad or a 41-d P_rot prior are planned for later; `hd219134/model.py` already
-accepts other P_rot priors.
+Two more internal runs free P_rot, so the GP can move onto f if that fits better:
+- `test_H6_broadProt` and `test_M4_broadProt`: the 6-Planet-H and adopted models with
+  P_rot ~ U(10, 60) d. The four chains start at P_rot = 22.56 (TESS), 22.79 (planet f), 41.2 (the
+  draft's Table 9 runs) and 45.6 d (twice f's period; RotationTerm also has power at P_rot / 2).
+  If f is activity, the GP should take over its signal and the two runs' ΔBIC should shrink
+  toward zero. Compare these two runs with each other, not with `main_M4`.
 
 ### Problem 7: no direct test of a single planet
 
@@ -249,7 +253,8 @@ python run_suite.py
 - In Settings → System → Power, set "When plugged in, put my device to sleep after" to **Never**.
 - In Settings → Windows Update, **pause updates** for the duration, so the machine doesn't restart.
 - If it does stop, run `python run_suite.py` again. Finished runs are kept; interrupted and
-  failed runs start over. Run only **one** copy at a time: two copies write to the same folders.
+  failed runs start over. Run only **one** copy over the same runs: two copies doing the same run
+  write to the same folder.
 - **Don't click inside the console window.** Windows' QuickEdit mode freezes a console's output
   after a click until you press a key (or Esc). Sampling continues, but the suite cannot record a
   finished run until then. To turn it off for good: right-click the title bar → Properties →
@@ -276,6 +281,13 @@ iteration drop (to ~60 for the 4-planet model) and so does the time per iteratio
 when its slowest chain does. Don't keep the summary files open in Excel while the suite runs;
 Excel locks them.
 
+**Adding runs while the suite is running.** A running suite only works through the runs it
+listed when it started. After a `git pull` that adds runs, either start `python run_suite.py`
+again once the first copy has finished, or start the new runs now in a second window with
+`python run_suite.py --only <new run ids> --jobs 1` (they share the CPU with the running ones,
+so everything goes somewhat slower). Never Ctrl-C the first copy for this: its runs would start
+over. Afterwards, `python run_suite.py --summary` rebuilds a summary that includes every run.
+
 **Bringing results back:** zip the `results` folder (about 5–10 MB per run) and copy it over.
 `results/` is git-ignored on purpose.
 
@@ -285,8 +297,9 @@ Each run samples 4 chains × (1500 tuning + 1500 kept) iterations on 4 cores. On
 Mac the converged 4-planet model took 12 h; the published 5- and 6-planet models took 35–37 h,
 because the sampler hit its step limit on almost every iteration; the new priors should bring the
 extended models closer to the 4-planet case. With 16 physical cores (4 runs at once) expect roughly
-2–3 days for all 9 runs; with 8 (`--jobs 2`), about 4–5 days. The five reported configurations run
-first.
+2–3 days for all 11 runs; with 8 (`--jobs 2`), about 4–5 days. The five reported configurations run
+first. Measured on the Windows work laptop (Intel Core Ultra 5, 16 GB, 3 runs at once): 26–32 h
+per run, the first ~500 tuning iterations taking most of it.
 
 ## 5. The runs
 
@@ -303,13 +316,15 @@ Planets: b, c (transiting), d, h (adopted); f, g, i (disputed); x (synthetic, in
 | `test_inject_22.56` | test | K = 2.3 m/s planet injected **at** P_rot. If it is not recovered, the GP absorbs real planets at the rotation period, and "f is activity" cannot be concluded from these fits. |
 | `test_M4+g` | test | b c d h + g: does g alone improve the fit? |
 | `test_inject_27.0` | test | the same injection at 27 d, away from P_rot; should be recovered |
+| `test_H6_broadProt` | test | 6-Planet-H with P_rot ~ U(10, 60) d, chains started at 22.56, 22.79, 41.2 and 45.6 d: does f survive when the GP can move onto it? |
+| `test_M4_broadProt` | test | 4-Planet-M with the same prior and starts; compare with `test_H6_broadProt` |
 
 The `main` runs are the paper's Table 6 configurations; `test` runs are internal and not reported.
 
 **Model settings (all runs).** These differ from the September draft, and §5 should describe them:
 - every planet: K ~ U(0, 20) m/s, masses derived from K (problem 5);
 - f, g, i and x: circular orbits; b, c, d, h: free e and ω, as before;
-- everything else as in the paper: P_rot ~ N(22.56, 0.29) d, Li et al. (2025) stellar mass,
+- everything else as in the paper: P_rot ~ N(22.56, 0.29) d (except the two `broadProt` tests), Li et al. (2025) stellar mass,
   literature priors on periods and phases, the same GP, offsets, jitters and activity term.
 
 **Starting points.** Every chain starts from a different draw of the converged paper 4-planet
@@ -346,7 +361,7 @@ run_suite.py              runs everything (see section 3)
 hd219134/data.py          TESS + RV loading and cleaning
 hd219134/planets.py       literature priors for every planet; the published configurations
 hd219134/model.py         the joint model (uniform-K or the paper's log-mass priors); RV injection
-hd219134/runs.py          the 9 runs, starting points and sampling settings
+hd219134/runs.py          the runs, starting points and sampling settings
 hd219134/run_one.py       samples and analyzes one run
 hd219134/metrics.py       ln L, ln L-hat, BIC, DIC, convergence, planet tables
 hd219134/summarize.py     results/summary/ (SUMMARY.md, model_comparison.csv, LaTeX table)

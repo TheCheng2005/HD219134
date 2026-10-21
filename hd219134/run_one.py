@@ -75,14 +75,16 @@ def main(run_id, quick=False):
     log = lambda msg: print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] {msg}", flush=True)
 
     log(f"run {run.id}: {run.note}")
-    log(f"planets {run.planets}, circular {run.circular}, K ~ U(0, 20) m/s, P_rot ~ N(22.56, 0.29), "
+    kind, a, b = run.prot_prior
+    log(f"planets {run.planets}, circular {run.circular}, K ~ U(0, 20) m/s, "
+        f"P_rot ~ {'N' if kind == 'normal' else 'U'}({a}, {b}), chain starts P_rot {run.prot_starts or 'paper draws'}, "
         f"injection {run.injection}, sampling {cfg}, seed {run.seed}")
 
     data = load_data(verbose=False)
     if run.injection:
         P, K, t0 = run.injection
         data = inject_rv_signal(data, P, K, t0)
-    model = build_model(data, run.planets, catalog=run.catalog, circular=run.circular)
+    model = build_model(data, run.planets, catalog=run.catalog, circular=run.circular, prot_prior=run.prot_prior)
 
     with model:
         trace = pm.sample(

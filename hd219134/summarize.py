@@ -91,7 +91,8 @@ def summarize(base):
             w.writerows(comp)
     md += ["## Model comparison (relative to main_M4)", "",
            "ln L-hat is the best fit inside the posterior's support. Negative dBIC favours the run over "
-           "main_M4. The main_* rows are the paper's Table 6; test_* rows are internal checks.", "",
+           "main_M4. The main_* rows are the paper's Table 6; test_* rows are internal checks. The *_broadProt "
+           "rows have a different P_rot prior: compare them with each other, not with main_M4.", "",
            table(["run", "planets", "circular", "k", "ln L-hat", "d ln L-hat", "dBIC", "median ln L", "dDIC",
                   "converged"],
                  [[c["run"], c["planets"], c["circular"], c["k"], fmt(c["ll_hat"]), fmt(c["d_ll_hat"]),

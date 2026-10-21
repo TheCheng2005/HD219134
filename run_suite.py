@@ -11,7 +11,8 @@
 
 Finished runs are skipped, so after a crash, reboot or Ctrl-C just start it again.
 Interrupted runs restart from the beginning (a run cannot resume mid-sampling).
-Run only one copy at a time: two copies would write to the same result folders.
+Don't run two copies over the same runs: they would write to the same result folders. A second
+copy with --only for runs the first is not doing is fine (see README section 3).
 """
 import argparse
 import os
