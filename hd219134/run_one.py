@@ -25,19 +25,32 @@ def results_dir(quick):
 
 
 def progress_callback(total, every, log):
-    """Log one line per chain every `every` iterations. Replaces PyMC's live progress bar,
-    which floods log files and uses characters a Windows log file cannot encode."""
+    """Log one line per chain every `every` iterations, with the speed since that chain's previous
+    line. Replaces PyMC's live progress bar, which floods log files and uses characters a
+    Windows log file cannot encode.
+
+    Steps/iteration is the number of NUTS leapfrog steps (one gradient evaluation each); it is
+    up to 1023 early in tuning and drops once the sampler has adapted to the posterior's shape.
+    """
     t0 = time.time()
-    divergences = {}
+    chains = {}
 
     def callback(trace, draw):
         stats = draw.stats[0] if isinstance(draw.stats, (list, tuple)) else draw.stats
+        c = chains.setdefault(draw.chain, dict(divergences=0, t_last=t0, steps=0))
         if not draw.tuning and stats.get("diverging", False):
-            divergences[draw.chain] = divergences.get(draw.chain, 0) + 1
+            c["divergences"] += 1
+        c["steps"] += int(stats.get("tree_size", 0))  # saved in the trace as n_steps
         n = draw.draw_idx + 1
         if n % every == 0 or draw.is_last:
+            now = time.time()
+            k = n % every or every  # iterations since this chain's previous line
+            sec = (now - c["t_last"]) / k
             log(f"chain {draw.chain}: iteration {n}/{total} ({'tuning' if draw.tuning else 'sampling'}), "
-                f"{divergences.get(draw.chain, 0)} divergences so far, {(time.time() - t0) / 3600:.2f} h elapsed")
+                f"{c['divergences']} divergences so far | last {k}: {sec:.1f} s/iteration, "
+                f"{c['steps'] / k:.0f} steps/iteration, ~{sec * (total - n) / 3600:.1f} h left at this speed | "
+                f"{(now - t0) / 3600:.2f} h elapsed")
+            c["t_last"], c["steps"] = now, 0
 
     return callback
 

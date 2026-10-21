@@ -262,9 +262,19 @@ Task Manager (Performance → CPU) shows, say, 8 cores and 16 logical processors
 Also watch memory in the first hour; if it is close to full, restart with a smaller `--jobs`.
 
 **Checking progress:** open `results\summary\SUMMARY.md` (any text editor, or VS Code's
-preview), or each run's live log `results\<run>\log.txt`, which gets a line per chain every
-100 iterations (out of 3000) with the divergence count and elapsed time. Don't keep the summary
-files open in Excel while the suite runs; Excel locks them.
+preview), or each run's live log `results\<run>\log.txt`. It gets a line per chain every
+100 iterations (out of 3000) with the divergence count, the speed over those 100 iterations
+(seconds and NUTS steps per iteration), the time left at that speed, and the elapsed time:
+
+```
+chain 0: iteration 1200/3000 (tuning), 0 divergences so far | last 100: 6.3 s/iteration, 64 steps/iteration, ~3.2 h left at this speed | 21.21 h elapsed
+```
+
+The first few hundred tuning iterations are by far the slowest: the sampler has not yet learned
+the posterior's shape, so it takes tiny steps, up to 1023 per iteration. Once it adapts, steps per
+iteration drop (to ~60 for the 4-planet model) and so does the time per iteration. A run finishes
+when its slowest chain does. Don't keep the summary files open in Excel while the suite runs;
+Excel locks them.
 
 **Bringing results back:** zip the `results` folder (about 5–10 MB per run) and copy it over.
 `results/` is git-ignored on purpose.
